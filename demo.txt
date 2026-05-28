@@ -1,0 +1,185 @@
+Маршрутизация
+шлюз в ipv4route default via x.x.x.x
+ip в ipv4address x.x.x.x/24
+днс в resolv.conf
+
+192.168.100.0/маска via кому обратиться чтобы передать пакет  172.16.4.2
+192.168.100.0/24 via 172.16.4.2
+
+
+
+Tunnel Gre
+
+Работа с первой машиной 
+modprobe ip_gre
+ip tunnel add gre1 mode gre \
+local 172.16.4.2 \
+remote 172.16.5.2
+
+ip addr add 10.10.10.1/30 dev gre1
+ip link set gre1 up
+
+
+Работа с другой машиной
+
+modprobe ip_gre
+ip tunnel add gre1 mode gre \
+local 172.16.5.2 \
+remote 172.16.4.2
+
+ip addr add 10.10.10.2/30 dev gre1
+ip link set gre1 up
+
+
+
+
+
+Настройка iptables
+На всех машина 
+ip_forward 1  (Находится /etc/net/sysctl.conf)
+
+
+iptables -t nat -A POSTROUTING -o "инет адаптер" -j MASQUERADE
+iptables-save > /etc/sysconfig/iptables
+iptables -t nat -L
+
+
+
+
+
+
+
+Установка dns
+apt-get update -y && apt-get install bind bind-utils  -y
+
+vim /etc/bind/options.conf
+
+ listen-on { 127.0.0.1; 192.168.100.1; }; =====> Поправляем только здесь 
+        listen-on-v6 { ::1; };
+
+
+vim /etc/bind/rfc1912.conf
+zone "ermolaev.wsr" {
+        type master;
+        file "localhost";
+        allow-update { none; };
+};
+
+#zone "localdomain" {
+#       type master;
+#       file "localdomain";
+#       allow-update { none; };
+#};
+
+#zone "127.in-addr.arpa" {
+#       type master;
+#       file "127.in-addr.arpa";
+#       allow-update { none; };
+#};
+
+#zone "0.in-addr.arpa" {
+#        type master;
+#        file "empty";
+#       allow-update { none; };
+#};
+
+zone "168.192.in-addr.arpa" {
+        type master;
+        file "empty";
+        allow-update { none; };
+};
+
+
+
+
+Прямая зона  cat /etc/bind/zone/localhost
+
+$TTL    1D
+@       IN      SOA     localhost. root.localhost. (
+                                2025110500      ; serial
+                                12H             ; refresh
+                                1H              ; retry
+                                1W              ; expire
+                                1H              ; ncache
+                        )
+        IN      NS      hq-srv.ermolaev.wsr.
+        IN      A       192.168.100.1
+HQ-SRV  IN      A       192.168.100.1
+HQ-CLI  IN      A       192.168.100.3
+HQ-RTR  IN      A       192.168.100.2
+ISP     IN      A       172.16.4.1
+
+
+
+cat /etc/bind/zone/empty
+
+$TTL    1D
+@       IN      SOA     hq-srv.ermolaev.wsr. root.ermolaev.wsr. (
+                                2025110500      ; serial
+                                12H             ; refresh
+                                1H              ; retry
+                                1W              ; expire
+                                1H              ; ncache
+                        )
+        IN      NS      hq-srv.ermolaev.wsr.
+1.100   IN      PTR     hq-srv.ermolaev.wsr.
+2.100   IN      PTR     hq-rtr.ermolaev.wsr.
+3.100   IN      PTR     hq-cli.ermolaev.wsr.
+
+
+
+
+
+
+
+
+Установка dhcp 
+
+
+apt-get update -y && apt-get install dhcp-server -y
+
+cd /etc/dhcp/
+cp dhcpd.conf.sample dhcpd.conf
+vim dhcpd.conf 
+
+
+subnet 192.168.100.0 netmask 255.255.255.192 {
+        option routers                  192.168.100.2;
+        option subnet-mask              255.255.255.192;
+
+#       option nis-domain               "domain.org";
+        option domain-name              "ermolaev.wsr";
+        option domain-name-servers      192.168.100.1;
+
+        range dynamic-bootp 192.168.100.3 192.168.100.62;
+        default-lease-time 21600;
+        max-lease-time 43200;
+}
+
+cat /etc/sysconfig/dhcpd
+Выбрать адаптер 
+
+
+
+
+Настройка chrony на сервере
+apt-get install chrony -y
+
+vim /etc/chrony.conf
+allow 0.0.0.0/0
+local stratum 5
+
+
+timedatectl set-timezone Europe/Moscow
+timedatectl set-ntp 0
+systemctl enable --now chronyd
+
+
+На клиенте 
+timedatectl set-timezone Europe/Moscow
+timedatectl set-ntp 1
+
+
+vim /etc/chronyc
+pool ip сервера
+
